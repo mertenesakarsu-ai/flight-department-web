@@ -19,6 +19,164 @@ interface DifferenceRow {
 
 const ALL_FLIGHTS_VALUE = 'ALL_FLIGHTS';
 
+const getDisplayIdentifier = (row?: Record<string, any>): string => {
+  if (!row) return '';
+  return (
+    row.bookingReference ||
+    row.voucher ||
+    row.reservationNo ||
+    row.referenceNumber ||
+    row.pnr ||
+    ''
+  );
+};
+
+const getRouteLabel = (row?: Record<string, any>): string => {
+  if (!row) return '-';
+  if (row.departureAirport && row.arrivalAirport) {
+    return `${row.departureAirport} → ${row.arrivalAirport}`;
+  }
+  return row.departureAirport || row.arrivalAirport || '-';
+};
+
+interface NameConflictEntry {
+  identifier: string;
+  left?: Record<string, any>;
+  right?: Record<string, any>;
+}
+
+const collectNameConflicts = (differences?: DifferenceRow[]): NameConflictEntry[] => {
+  if (!differences || differences.length === 0) {
+    return [];
+  }
+
+  const conflictMap = new Map<string, NameConflictEntry>();
+
+  const getDiffIdentifier = (diff: DifferenceRow): string | undefined => {
+    const id = getDisplayIdentifier(diff.sideA) || getDisplayIdentifier(diff.sideB);
+    return id || undefined;
+  };
+
+  differences.forEach((diff) => {
+    const identifier = getDiffIdentifier(diff);
+    if (!identifier) return;
+    if (diff.changes?.some((change) => change.field === 'fullName')) {
+      conflictMap.set(identifier, {
+        identifier,
+        left: diff.sideA,
+        right: diff.sideB,
+      });
+    }
+  });
+
+  const grouped = new Map<string, { newDiff?: DifferenceRow; deletedDiff?: DifferenceRow }>();
+  differences.forEach((diff) => {
+    const identifier = getDiffIdentifier(diff);
+    if (!identifier) return;
+    const bucket = grouped.get(identifier) || {};
+    if (diff.differenceType === 'NEW') {
+      bucket.newDiff = diff;
+    }
+    if (diff.differenceType === 'DELETED') {
+      bucket.deletedDiff = diff;
+    }
+    grouped.set(identifier, bucket);
+  });
+
+  grouped.forEach((bucket, identifier) => {
+    if (!bucket.newDiff || !bucket.deletedDiff || conflictMap.has(identifier)) {
+      return;
+    }
+
+    const previous = bucket.deletedDiff.sideA;
+    const current = bucket.newDiff.sideB;
+
+    if (
+      previous?.fullName &&
+      current?.fullName &&
+      previous.fullName.trim() !== current.fullName.trim()
+    ) {
+      conflictMap.set(identifier, {
+        identifier,
+        left: previous,
+        right: current,
+      });
+    }
+  });
+
+  return Array.from(conflictMap.values());
+};
+
+const NameConflictTable = ({
+  conflicts,
+  leftLabel,
+  rightLabel,
+}: {
+  conflicts: NameConflictEntry[];
+  leftLabel: string;
+  rightLabel: string;
+}) => {
+  if (!conflicts.length) return null;
+
+  return (
+    <div className="space-y-2">
+      <h4 className="text-md font-semibold text-purple-700">
+        Aynı Referanslı Farklı İsimler ({conflicts.length})
+      </h4>
+      <div className="overflow-x-auto border-2 border-purple-200 rounded-lg">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-purple-50">
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                Referans / Voucher
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                {leftLabel}
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                {rightLabel}
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                Uçuş No
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                Tarih
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                Rota
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {conflicts.map((conflict) => (
+              <tr key={conflict.identifier} className="bg-white hover:bg-purple-50">
+                <td className="border-b border-purple-100 px-4 py-2 font-semibold">
+                  {conflict.identifier}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {conflict.left?.fullName || '-'}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {conflict.right?.fullName || '-'}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {conflict.right?.flightNumber || conflict.left?.flightNumber || '-'}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {conflict.right?.flightDate || conflict.left?.flightDate || '-'}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {getRouteLabel(conflict.right) !== '-' ? getRouteLabel(conflict.right) : getRouteLabel(conflict.left)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 export default function ComparisonSystem() {
   const [flights, setFlights] = useState<any[]>([]);
   const [selectedFlightId, setSelectedFlightId] = useState<string>(ALL_FLIGHTS_VALUE);
@@ -103,6 +261,14 @@ export default function ComparisonSystem() {
 
   const excelToExcelSummary = useMemo(() => excelToExcelResult?.summary, [excelToExcelResult]);
   const excelToDbSummary = useMemo(() => excelToDbResult?.summary, [excelToDbResult]);
+  const excelNameConflicts = useMemo(
+    () => collectNameConflicts(excelToExcelResult?.differences),
+    [excelToExcelResult]
+  );
+  const dbNameConflicts = useMemo(
+    () => collectNameConflicts(excelToDbResult?.differences),
+    [excelToDbResult]
+  );
 
   return (
     <div className="space-y-6">
@@ -166,7 +332,8 @@ export default function ComparisonSystem() {
                       <thead>
                         <tr className="bg-green-50">
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Havayolu</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
@@ -178,7 +345,12 @@ export default function ComparisonSystem() {
                           .map((diff, idx) => (
                             <tr key={idx} className="bg-white hover:bg-green-50">
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.fullName || '-'}</td>
-                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.voucher || '-'}</td>
+                              <td className="border-b border-green-100 px-4 py-2">
+                                {getDisplayIdentifier(diff.sideB) || '-'}
+                              </td>
+                              <td className="border-b border-green-100 px-4 py-2">
+                                {getRouteLabel(diff.sideB)}
+                              </td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightDate || '-'}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.airline || '-'}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightNumber || '-'}</td>
@@ -202,7 +374,8 @@ export default function ComparisonSystem() {
                       <thead>
                         <tr className="bg-red-50">
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Havayolu</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
@@ -214,7 +387,10 @@ export default function ComparisonSystem() {
                           .map((diff, idx) => (
                             <tr key={idx} className="bg-white hover:bg-red-50">
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.fullName || '-'}</td>
-                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.voucher || '-'}</td>
+                              <td className="border-b border-red-100 px-4 py-2">
+                                {getDisplayIdentifier(diff.sideA) || '-'}
+                              </td>
+                              <td className="border-b border-red-100 px-4 py-2">{getRouteLabel(diff.sideA)}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightDate || '-'}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.airline || '-'}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightNumber || '-'}</td>
@@ -238,7 +414,8 @@ export default function ComparisonSystem() {
                       <thead>
                         <tr className="bg-yellow-50">
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Değişen Alanlar</th>
                         </tr>
@@ -252,7 +429,10 @@ export default function ComparisonSystem() {
                                 {diff.sideB?.fullName || diff.sideA?.fullName || '-'}
                               </td>
                               <td className="border-b border-yellow-100 px-4 py-2">
-                                {diff.sideB?.voucher || diff.sideA?.voucher || '-'}
+                                {getDisplayIdentifier(diff.sideB) || getDisplayIdentifier(diff.sideA) || '-'}
+                              </td>
+                              <td className="border-b border-yellow-100 px-4 py-2">
+                                {getRouteLabel(diff.sideB) !== '-' ? getRouteLabel(diff.sideB) : getRouteLabel(diff.sideA)}
                               </td>
                               <td className="border-b border-yellow-100 px-4 py-2">
                                 {diff.sideB?.flightDate || diff.sideA?.flightDate || '-'}
@@ -277,6 +457,14 @@ export default function ComparisonSystem() {
                     </table>
                   </div>
                 </div>
+              )}
+
+              {excelNameConflicts.length > 0 && (
+                <NameConflictTable
+                  conflicts={excelNameConflicts}
+                  leftLabel="Excel A"
+                  rightLabel="Excel B"
+                />
               )}
 
               {/* Sonuç yoksa mesaj */}
@@ -361,7 +549,8 @@ export default function ComparisonSystem() {
                       <thead>
                         <tr className="bg-green-50">
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Havayolu</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
@@ -373,7 +562,10 @@ export default function ComparisonSystem() {
                           .map((diff, idx) => (
                             <tr key={idx} className="bg-white hover:bg-green-50">
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.fullName || '-'}</td>
-                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.voucher || '-'}</td>
+                              <td className="border-b border-green-100 px-4 py-2">
+                                {getDisplayIdentifier(diff.sideB) || '-'}
+                              </td>
+                              <td className="border-b border-green-100 px-4 py-2">{getRouteLabel(diff.sideB)}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightDate || '-'}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.airline || '-'}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightNumber || '-'}</td>
@@ -397,7 +589,8 @@ export default function ComparisonSystem() {
                       <thead>
                         <tr className="bg-red-50">
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Havayolu</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
@@ -409,7 +602,10 @@ export default function ComparisonSystem() {
                           .map((diff, idx) => (
                             <tr key={idx} className="bg-white hover:bg-red-50">
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.fullName || '-'}</td>
-                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.voucher || '-'}</td>
+                              <td className="border-b border-red-100 px-4 py-2">
+                                {getDisplayIdentifier(diff.sideA) || '-'}
+                              </td>
+                              <td className="border-b border-red-100 px-4 py-2">{getRouteLabel(diff.sideA)}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightDate || '-'}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.airline || '-'}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightNumber || '-'}</td>
@@ -433,7 +629,8 @@ export default function ComparisonSystem() {
                       <thead>
                         <tr className="bg-yellow-50">
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Değişen Alanlar</th>
                         </tr>
@@ -447,7 +644,10 @@ export default function ComparisonSystem() {
                                 {diff.sideB?.fullName || diff.sideA?.fullName || '-'}
                               </td>
                               <td className="border-b border-yellow-100 px-4 py-2">
-                                {diff.sideB?.voucher || diff.sideA?.voucher || '-'}
+                                {getDisplayIdentifier(diff.sideB) || getDisplayIdentifier(diff.sideA) || '-'}
+                              </td>
+                              <td className="border-b border-yellow-100 px-4 py-2">
+                                {getRouteLabel(diff.sideB) !== '-' ? getRouteLabel(diff.sideB) : getRouteLabel(diff.sideA)}
                               </td>
                               <td className="border-b border-yellow-100 px-4 py-2">
                                 {diff.sideB?.flightDate || diff.sideA?.flightDate || '-'}
@@ -472,6 +672,14 @@ export default function ComparisonSystem() {
                     </table>
                   </div>
                 </div>
+              )}
+
+              {dbNameConflicts.length > 0 && (
+                <NameConflictTable
+                  conflicts={dbNameConflicts}
+                  leftLabel="Veritabanı"
+                  rightLabel="Excel"
+                />
               )}
 
               {/* Sonuç yoksa mesaj */}

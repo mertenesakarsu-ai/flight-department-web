@@ -223,10 +223,28 @@ export const readExcelFile = async (buffer: Buffer): Promise<PassengerRow[]> => 
   const passengers: PassengerRow[] = [];
   let headerRow: { [key: string]: number } = {};
 
+  const normalizeHeaderKey = (value: string): string =>
+    value
+      .toString()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[^a-z0-9]/g, '');
+
+  const normalizeTextValue = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    return value
+      .toString()
+      .replace(/\s+/g, ' ')
+      .replace(/^"+|"+$/g, '')
+      .trim();
+  };
+
   // Find header row (usually row 1)
   const firstRow = worksheet.getRow(1);
   firstRow.eachCell((cell, colNumber) => {
-    const header = cell.value?.toString().toLowerCase().replace(/\s+/g, '') || '';
+    const rawValue = cell.value?.toString();
+    if (!rawValue) return;
+    const header = normalizeHeaderKey(rawValue);
     if (header) {
       headerRow[header] = colNumber;
     }
@@ -234,48 +252,87 @@ export const readExcelFile = async (buffer: Buffer): Promise<PassengerRow[]> => 
 
   // Map header names to our PassengerRow fields (matching new template format)
   const headerMapping: { [key: string]: keyof PassengerRow } = {
-    // Turkish/English variations
-    'nameandsurname': 'fullName',
-    'name and surname': 'fullName',
-    'fullname': 'fullName',
-    'name': 'fullName',
-    'operatör': 'airline',
-    'operator': 'airline',
-    'airline': 'airline',
-    'flightnumber': 'flightNumber',
-    'flightno': 'flightNumber',
-    'flight no': 'flightNumber',
-    'arrivaldate': 'flightDate',
-    'arrival date': 'flightDate',
-    'departuredate': 'flightDate',
-    'departure date': 'flightDate',
-    'flightdate': 'flightDate',
-    'date': 'flightDate',
-    'flighttime': 'flightTime',
-    'flight time': 'flightTime',
-    'time': 'flightTime',
-    'pnr': 'bookingReference',
-    'bookingreference': 'bookingReference',
-    'voucher': 'voucher',
-    'reservationno': 'voucher',
-    'reservation no': 'voucher',
-    'roomtype': 'roomType',
-    'room type': 'roomType',
-    'room': 'roomType',
-    'airport': 'departureAirport', // Will try to parse VIE-SAW format
-    'passportnumber': 'passportNumber',
-    'passport': 'passportNumber',
-    'nationality': 'nationality',
+    // Turkish/English/German variations for common fields
+    nameandsurname: 'fullName',
+    namesurname: 'fullName',
+    fullname: 'fullName',
+    name: 'fullName',
+    text: 'fullName',
+    passenger: 'fullName',
+    passengername: 'fullName',
+    adsyd: 'fullName',
+    adsoyad: 'fullName',
+    operator: 'airline',
+    operatorname: 'airline',
+    airline: 'airline',
+    carrier: 'airline',
+    flightnumber: 'flightNumber',
+    flightno: 'flightNumber',
+    flightnr: 'flightNumber',
+    flightnum: 'flightNumber',
+    arrivaldate: 'flightDate',
+    departuredate: 'flightDate',
+    flightdate: 'flightDate',
+    date: 'flightDate',
+    arrivalday: 'flightDate',
+    departureday: 'flightDate',
+    flighttime: 'flightTime',
+    time: 'flightTime',
+    arrivaltime: 'flightTime',
+    departuretime: 'flightTime',
+    pnr: 'bookingReference',
+    pnrno: 'bookingReference',
+    pnrnumber: 'bookingReference',
+    bookingreference: 'bookingReference',
+    bookingref: 'bookingReference',
+    bookingrefno: 'bookingReference',
+    bookingrefnr: 'bookingReference',
+    bookingcode: 'bookingReference',
+    bookingid: 'bookingReference',
+    voucher: 'voucher',
+    voucherno: 'voucher',
+    vouchernumber: 'voucher',
+    voucherid: 'voucher',
+    reservationno: 'voucher',
+    reservationnr: 'voucher',
+    reservationnumber: 'voucher',
+    reservation: 'voucher',
+    roomtype: 'roomType',
+    room: 'roomType',
+    paxroom: 'roomType',
+    airport: 'departureAirport',
+    airports: 'departureAirport',
+    transportto: 'departureAirport',
+    transporthin: 'departureAirport',
+    transportfrom: 'arrivalAirport',
+    transportreturn: 'arrivalAirport',
+    transportzurueck: 'arrivalAirport',
+    transportback: 'arrivalAirport',
+    nereden: 'departureAirport',
+    nereye: 'arrivalAirport',
+    neredennereye: 'departureAirport',
+    passportnumber: 'passportNumber',
+    passport: 'passportNumber',
+    nationality: 'nationality',
   };
 
   // Helper to parse airport code (e.g., "VIE-SAW" -> departure: "VIE", arrival: "SAW")
   const parseAirport = (airportStr: string): { departure?: string; arrival?: string } => {
     if (!airportStr) return {};
-    const parts = airportStr.split('-');
-    if (parts.length === 2) {
-      return { departure: parts[0].trim(), arrival: parts[1].trim() };
+    const cleaned = airportStr
+      .replace(/strecke[:]?/gi, '')
+      .replace(/transport\s+(to|from|return)[:]?/gi, '')
+      .replace(/_/g, '-')
+      .replace(/→/g, '-')
+      .replace(/\s+to\s+/gi, '-')
+      .replace(/\s+nach\s+/gi, '-')
+      .trim();
+    const firstSegment = cleaned.split('+')[0]?.trim() || cleaned;
+    const parts = firstSegment.split('-').map((p) => p.trim()).filter((p) => p.length > 0);
+    if (parts.length >= 2) {
+      return { departure: parts[0], arrival: parts[1] };
     }
-    return { departure: airportStr.trim() };
+    return { departure: firstSegment };
   };
 
   // Helper to format date from Excel date
@@ -303,16 +360,16 @@ export const readExcelFile = async (buffer: Buffer): Promise<PassengerRow[]> => 
       if (colNum) {
         const cell = row.getCell(colNum);
         let value = cell.value;
-        
+
         // Handle different cell value types
         if (value instanceof Date) {
           if (fieldName === 'flightDate') {
             passenger.flightDate = value.toISOString().split('T')[0];
           }
         } else if (value !== null && value !== undefined) {
-          value = value.toString().trim();
-          if (value) {
-            (passenger as any)[fieldName] = value;
+          const normalizedValue = normalizeTextValue(value);
+          if (normalizedValue) {
+            (passenger as any)[fieldName] = normalizedValue;
           }
         }
       }
@@ -322,21 +379,29 @@ export const readExcelFile = async (buffer: Buffer): Promise<PassengerRow[]> => 
     // Column 4: Name and Surname
     const nameCell = row.getCell(4);
     if (nameCell.value) {
-      passenger.fullName = nameCell.value.toString().trim();
+      const normalizedName = normalizeTextValue(nameCell.value);
+      if (normalizedName) {
+        passenger.fullName = normalizedName;
+      }
     }
 
     // Column 9: Airline
     const airlineCell = row.getCell(9);
     if (airlineCell.value && !passenger.airline) {
-      passenger.airline = airlineCell.value.toString().trim();
+      const normalizedAirline = normalizeTextValue(airlineCell.value);
+      if (normalizedAirline) {
+        passenger.airline = normalizedAirline;
+      }
     }
 
     // Column 10: PNR (can be booking reference or voucher)
     const pnrCell = row.getCell(10);
     if (pnrCell.value) {
-      const pnrValue = pnrCell.value.toString().trim();
-      if (!passenger.bookingReference) passenger.bookingReference = pnrValue;
-      if (!passenger.voucher) passenger.voucher = pnrValue;
+      const pnrValue = normalizeTextValue(pnrCell.value);
+      if (pnrValue) {
+        if (!passenger.bookingReference) passenger.bookingReference = pnrValue;
+        if (!passenger.voucher) passenger.voucher = pnrValue;
+      }
     }
 
     // Column 11: Arrival date
@@ -355,20 +420,38 @@ export const readExcelFile = async (buffer: Buffer): Promise<PassengerRow[]> => 
     const airportCell = row.getCell(13);
     if (airportCell.value) {
       const airportData = parseAirport(airportCell.value.toString());
-      if (airportData.departure) passenger.departureAirport = airportData.departure;
-      if (airportData.arrival) passenger.arrivalAirport = airportData.arrival;
+      if (airportData.departure) passenger.departureAirport = normalizeTextValue(airportData.departure);
+      if (airportData.arrival) passenger.arrivalAirport = normalizeTextValue(airportData.arrival);
     }
 
     // Column 14: Flight time
     const flightTimeCell = row.getCell(14);
     if (flightTimeCell.value && !passenger.flightTime) {
-      passenger.flightTime = flightTimeCell.value.toString().trim();
+      const normalizedTime = normalizeTextValue(flightTimeCell.value);
+      if (normalizedTime) {
+        passenger.flightTime = normalizedTime;
+      }
     }
 
     // Column 5: Room Type
     const roomTypeCell = row.getCell(5);
     if (roomTypeCell.value && !passenger.roomType) {
-      passenger.roomType = roomTypeCell.value.toString().trim();
+      const normalizedRoomType = normalizeTextValue(roomTypeCell.value);
+      if (normalizedRoomType) {
+        passenger.roomType = normalizedRoomType;
+      }
+    }
+
+    if (!passenger.bookingReference && passenger.voucher) {
+      passenger.bookingReference = passenger.voucher;
+    }
+
+    if (!passenger.voucher && passenger.bookingReference) {
+      passenger.voucher = passenger.bookingReference;
+    }
+
+    if (passenger.fullName) {
+      passenger.fullName = passenger.fullName.replace(/\s+/g, ' ').trim();
     }
 
     // Only add if we have at least a name
