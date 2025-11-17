@@ -18,16 +18,35 @@ export interface DifferenceRow {
   statusText?: string;
 }
 
+const getNormalizedIdentifier = (row: PassengerRow): string | undefined => {
+  const identifier =
+    row.bookingReference?.toLowerCase().trim() ||
+    row.voucher?.toLowerCase().trim() ||
+    row.passportNumber?.toLowerCase().trim();
+
+  if (identifier && identifier.length > 0) {
+    return identifier;
+  }
+  return undefined;
+};
+
 // Generate a unique key for a passenger row
 const generateKey = (row: PassengerRow): string => {
-  // Use combination of name, voucher, and flight date as key
-  const parts = [
+  const identifier = getNormalizedIdentifier(row);
+  if (identifier) {
+    const parts = [identifier, row.flightDate?.trim() || '', row.flightNumber?.toLowerCase().trim() || ''];
+    return parts.filter((p) => p).join('|');
+  }
+
+  const fallbackParts = [
     row.fullName?.toLowerCase().trim() || '',
     row.voucher?.toLowerCase().trim() || '',
     row.flightDate?.trim() || '',
     row.flightNumber?.toLowerCase().trim() || '',
   ];
-  return parts.filter((p) => p).join('|');
+
+  const key = fallbackParts.filter((p) => p).join('|');
+  return key || Math.random().toString(36).substring(2, 10);
 };
 
 // Compare two passenger rows and return field changes
@@ -116,17 +135,22 @@ export const compareExcelToExcel = (
       if (changes.length > 0) {
         // Generate detailed status text
         const fieldNames = changes.map((c) => {
-          const fieldMap: { [key: string]: string } = {
-            fullName: 'İsim',
-            flightDate: 'Tarih',
-            flightTime: 'Saat',
-            voucher: 'Voucher',
-            roomType: 'Oda Tipi',
-            airline: 'Havayolu',
-            flightNumber: 'Uçuş No',
-          };
-          return fieldMap[c.field] || c.field;
-        });
+        const fieldMap: { [key: string]: string } = {
+          fullName: 'İsim',
+          flightDate: 'Tarih',
+          flightTime: 'Saat',
+          voucher: 'Voucher',
+          bookingReference: 'PNR / Referans',
+          roomType: 'Oda Tipi',
+          airline: 'Havayolu',
+          flightNumber: 'Uçuş No',
+          departureAirport: 'Kalkış',
+          arrivalAirport: 'Varış',
+          passportNumber: 'Pasaport No',
+          nationality: 'Uyruk',
+        };
+        return fieldMap[c.field] || c.field;
+      });
 
         differences.push({
           key,

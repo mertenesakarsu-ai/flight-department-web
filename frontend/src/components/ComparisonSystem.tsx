@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,13 +17,175 @@ interface DifferenceRow {
   statusText?: string;
 }
 
+const ALL_FLIGHTS_VALUE = 'ALL_FLIGHTS';
+
+const getDisplayIdentifier = (row?: Record<string, any>): string => {
+  if (!row) return '';
+  return (
+    row.bookingReference ||
+    row.voucher ||
+    row.reservationNo ||
+    row.referenceNumber ||
+    row.pnr ||
+    ''
+  );
+};
+
+const getRouteLabel = (row?: Record<string, any>): string => {
+  if (!row) return '-';
+  if (row.departureAirport && row.arrivalAirport) {
+    return `${row.departureAirport} → ${row.arrivalAirport}`;
+  }
+  return row.departureAirport || row.arrivalAirport || '-';
+};
+
+interface NameConflictEntry {
+  identifier: string;
+  left?: Record<string, any>;
+  right?: Record<string, any>;
+}
+
+const collectNameConflicts = (differences?: DifferenceRow[]): NameConflictEntry[] => {
+  if (!differences || differences.length === 0) {
+    return [];
+  }
+
+  const conflictMap = new Map<string, NameConflictEntry>();
+
+  const getDiffIdentifier = (diff: DifferenceRow): string | undefined => {
+    const id = getDisplayIdentifier(diff.sideA) || getDisplayIdentifier(diff.sideB);
+    return id || undefined;
+  };
+
+  differences.forEach((diff) => {
+    const identifier = getDiffIdentifier(diff);
+    if (!identifier) return;
+    if (diff.changes?.some((change) => change.field === 'fullName')) {
+      conflictMap.set(identifier, {
+        identifier,
+        left: diff.sideA,
+        right: diff.sideB,
+      });
+    }
+  });
+
+  const grouped = new Map<string, { newDiff?: DifferenceRow; deletedDiff?: DifferenceRow }>();
+  differences.forEach((diff) => {
+    const identifier = getDiffIdentifier(diff);
+    if (!identifier) return;
+    const bucket = grouped.get(identifier) || {};
+    if (diff.differenceType === 'NEW') {
+      bucket.newDiff = diff;
+    }
+    if (diff.differenceType === 'DELETED') {
+      bucket.deletedDiff = diff;
+    }
+    grouped.set(identifier, bucket);
+  });
+
+  grouped.forEach((bucket, identifier) => {
+    if (!bucket.newDiff || !bucket.deletedDiff || conflictMap.has(identifier)) {
+      return;
+    }
+
+    const previous = bucket.deletedDiff.sideA;
+    const current = bucket.newDiff.sideB;
+
+    if (
+      previous?.fullName &&
+      current?.fullName &&
+      previous.fullName.trim() !== current.fullName.trim()
+    ) {
+      conflictMap.set(identifier, {
+        identifier,
+        left: previous,
+        right: current,
+      });
+    }
+  });
+
+  return Array.from(conflictMap.values());
+};
+
+const NameConflictTable = ({
+  conflicts,
+  leftLabel,
+  rightLabel,
+}: {
+  conflicts: NameConflictEntry[];
+  leftLabel: string;
+  rightLabel: string;
+}) => {
+  if (!conflicts.length) return null;
+
+  return (
+    <div className="space-y-2">
+      <h4 className="text-md font-semibold text-purple-700">
+        Aynı Referanslı Farklı İsimler ({conflicts.length})
+      </h4>
+      <div className="overflow-x-auto border-2 border-purple-200 rounded-lg">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-purple-50">
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                Referans / Voucher
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                {leftLabel}
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                {rightLabel}
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                Uçuş No
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                Tarih
+              </th>
+              <th className="border-b-2 border-purple-200 px-4 py-3 text-left font-semibold">
+                Rota
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {conflicts.map((conflict) => (
+              <tr key={conflict.identifier} className="bg-white hover:bg-purple-50">
+                <td className="border-b border-purple-100 px-4 py-2 font-semibold">
+                  {conflict.identifier}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {conflict.left?.fullName || '-'}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {conflict.right?.fullName || '-'}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {conflict.right?.flightNumber || conflict.left?.flightNumber || '-'}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {conflict.right?.flightDate || conflict.left?.flightDate || '-'}
+                </td>
+                <td className="border-b border-purple-100 px-4 py-2">
+                  {getRouteLabel(conflict.right) !== '-' ? getRouteLabel(conflict.right) : getRouteLabel(conflict.left)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 export default function ComparisonSystem() {
   const [flights, setFlights] = useState<any[]>([]);
-  const [selectedFlightId, setSelectedFlightId] = useState<string>('');
+  const [selectedFlightId, setSelectedFlightId] = useState<string>(ALL_FLIGHTS_VALUE);
   const [excelToExcelResult, setExcelToExcelResult] = useState<{ differences: DifferenceRow[]; summary: any } | null>(null);
   const [excelToDbResult, setExcelToDbResult] = useState<{ differences: DifferenceRow[]; summary: any } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [excelCompareLoading, setExcelCompareLoading] = useState(false);
+  const [dbCompareLoading, setDbCompareLoading] = useState(false);
+  const [excelCompareError, setExcelCompareError] = useState('');
+  const [dbCompareError, setDbCompareError] = useState('');
 
   useEffect(() => {
     loadFlights();
@@ -45,12 +207,12 @@ export default function ComparisonSystem() {
     const fileB = formData.get('fileB') as File;
 
     if (!fileA || !fileB) {
-      setError('Her iki Excel dosyasını da seçin');
+      setExcelCompareError('Her iki Excel dosyasını da seçin');
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setExcelCompareLoading(true);
+    setExcelCompareError('');
 
     try {
       const compareFormData = new FormData();
@@ -59,10 +221,11 @@ export default function ComparisonSystem() {
 
       const result = await compareAPI.excelToExcel(compareFormData);
       setExcelToExcelResult(result);
+      setExcelCompareError('');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Karşılaştırma sırasında bir hata oluştu');
+      setExcelCompareError(err.response?.data?.error || 'Karşılaştırma sırasında bir hata oluştu');
     } finally {
-      setLoading(false);
+      setExcelCompareLoading(false);
     }
   };
 
@@ -72,41 +235,40 @@ export default function ComparisonSystem() {
     const file = formData.get('file') as File;
 
     if (!file) {
-      setError('Excel dosyasını seçin');
+      setDbCompareError('Excel dosyasını seçin');
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setDbCompareLoading(true);
+    setDbCompareError('');
 
     try {
       const compareFormData = new FormData();
       compareFormData.append('file', file);
-      if (selectedFlightId && selectedFlightId !== '') {
+      if (selectedFlightId && selectedFlightId !== ALL_FLIGHTS_VALUE) {
         compareFormData.append('flightId', selectedFlightId);
       }
 
       const result = await compareAPI.excelToDb(compareFormData);
       setExcelToDbResult(result);
+      setDbCompareError('');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Karşılaştırma sırasında bir hata oluştu');
+      setDbCompareError(err.response?.data?.error || 'Karşılaştırma sırasında bir hata oluştu');
     } finally {
-      setLoading(false);
+      setDbCompareLoading(false);
     }
   };
 
-  const getStatusColor = (type: string) => {
-    switch (type) {
-      case 'NEW':
-        return 'bg-green-100 text-green-800 border-green-300';
-      case 'DELETED':
-        return 'bg-red-100 text-red-800 border-red-300';
-      case 'UPDATED':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
+  const excelToExcelSummary = useMemo(() => excelToExcelResult?.summary, [excelToExcelResult]);
+  const excelToDbSummary = useMemo(() => excelToDbResult?.summary, [excelToDbResult]);
+  const excelNameConflicts = useMemo(
+    () => collectNameConflicts(excelToExcelResult?.differences),
+    [excelToExcelResult]
+  );
+  const dbNameConflicts = useMemo(
+    () => collectNameConflicts(excelToDbResult?.differences),
+    [excelToDbResult]
+  );
 
   return (
     <div className="space-y-6">
@@ -127,42 +289,51 @@ export default function ComparisonSystem() {
                 <Input type="file" accept=".xlsx,.xls" name="fileB" required />
               </div>
             </div>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={excelCompareLoading}>
               <ArrowLeftRight className="h-4 w-4 mr-2" />
-              {loading ? 'Karşılaştırılıyor...' : 'Karşılaştır'}
+              {excelCompareLoading ? 'Karşılaştırılıyor...' : 'Karşılaştır'}
             </Button>
           </form>
 
+          {excelCompareError && (
+            <p className="mt-4 text-sm text-red-600" role="alert">
+              {excelCompareError}
+            </p>
+          )}
+
           {excelToExcelResult && (
             <div className="mt-6 space-y-6">
-              <div className="flex gap-4 text-sm">
-                <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
-                  Toplam: {excelToExcelResult.summary.total}
+              {excelToExcelSummary && (
+                <div className="flex gap-4 text-sm">
+                  <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
+                    Toplam: {excelToExcelSummary.total}
+                  </div>
+                  <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
+                    Eklenenler: {excelToExcelSummary.new}
+                  </div>
+                  <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
+                    Çıkarılanlar: {excelToExcelSummary.deleted}
+                  </div>
+                  <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
+                    Değişenler: {excelToExcelSummary.updated}
+                  </div>
                 </div>
-                <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
-                  Eklenenler: {excelToExcelResult.summary.new}
-                </div>
-                <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
-                  Çıkarılanlar: {excelToExcelResult.summary.deleted}
-                </div>
-                <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
-                  Değişenler: {excelToExcelResult.summary.updated}
-                </div>
-              </div>
+              )}
 
               {/* Eklenenler Tablosu */}
               {excelToExcelResult.differences.filter(d => d.differenceType === 'NEW').length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-green-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    Eklenenler ({excelToExcelResult.summary.new})
+                    Eklenenler ({excelToExcelSummary?.new ?? 0})
                   </h3>
                   <div className="overflow-x-auto border-2 border-green-200 rounded-lg">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-green-50">
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Havayolu</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
@@ -174,7 +345,12 @@ export default function ComparisonSystem() {
                           .map((diff, idx) => (
                             <tr key={idx} className="bg-white hover:bg-green-50">
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.fullName || '-'}</td>
-                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.voucher || '-'}</td>
+                              <td className="border-b border-green-100 px-4 py-2">
+                                {getDisplayIdentifier(diff.sideB) || '-'}
+                              </td>
+                              <td className="border-b border-green-100 px-4 py-2">
+                                {getRouteLabel(diff.sideB)}
+                              </td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightDate || '-'}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.airline || '-'}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightNumber || '-'}</td>
@@ -191,14 +367,15 @@ export default function ComparisonSystem() {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                    Çıkarılanlar ({excelToExcelResult.summary.deleted})
+                    Çıkarılanlar ({excelToExcelSummary?.deleted ?? 0})
                   </h3>
                   <div className="overflow-x-auto border-2 border-red-200 rounded-lg">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-red-50">
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Havayolu</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
@@ -210,7 +387,10 @@ export default function ComparisonSystem() {
                           .map((diff, idx) => (
                             <tr key={idx} className="bg-white hover:bg-red-50">
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.fullName || '-'}</td>
-                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.voucher || '-'}</td>
+                              <td className="border-b border-red-100 px-4 py-2">
+                                {getDisplayIdentifier(diff.sideA) || '-'}
+                              </td>
+                              <td className="border-b border-red-100 px-4 py-2">{getRouteLabel(diff.sideA)}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightDate || '-'}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.airline || '-'}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightNumber || '-'}</td>
@@ -227,14 +407,15 @@ export default function ComparisonSystem() {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-yellow-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                    Değişenler / Farklar ({excelToExcelResult.summary.updated})
+                    Değişenler / Farklar ({excelToExcelSummary?.updated ?? 0})
                   </h3>
                   <div className="overflow-x-auto border-2 border-yellow-200 rounded-lg">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-yellow-50">
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Değişen Alanlar</th>
                         </tr>
@@ -248,7 +429,10 @@ export default function ComparisonSystem() {
                                 {diff.sideB?.fullName || diff.sideA?.fullName || '-'}
                               </td>
                               <td className="border-b border-yellow-100 px-4 py-2">
-                                {diff.sideB?.voucher || diff.sideA?.voucher || '-'}
+                                {getDisplayIdentifier(diff.sideB) || getDisplayIdentifier(diff.sideA) || '-'}
+                              </td>
+                              <td className="border-b border-yellow-100 px-4 py-2">
+                                {getRouteLabel(diff.sideB) !== '-' ? getRouteLabel(diff.sideB) : getRouteLabel(diff.sideA)}
                               </td>
                               <td className="border-b border-yellow-100 px-4 py-2">
                                 {diff.sideB?.flightDate || diff.sideA?.flightDate || '-'}
@@ -273,6 +457,14 @@ export default function ComparisonSystem() {
                     </table>
                   </div>
                 </div>
+              )}
+
+              {excelNameConflicts.length > 0 && (
+                <NameConflictTable
+                  conflicts={excelNameConflicts}
+                  leftLabel="Excel A"
+                  rightLabel="Excel B"
+                />
               )}
 
               {/* Sonuç yoksa mesaj */}
@@ -302,10 +494,10 @@ export default function ComparisonSystem() {
               <Label>Uçuş Seçin (Opsiyonel)</Label>
               <Select value={selectedFlightId} onValueChange={setSelectedFlightId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tüm uçuşlar" />
+                  <SelectValue placeholder="Uçuş seçin" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Tüm Uçuşlar</SelectItem>
+                  <SelectItem value={ALL_FLIGHTS_VALUE}>Tüm Uçuşlar</SelectItem>
                   {flights.map((flight) => (
                     <SelectItem key={flight.id} value={flight.id}>
                       {flight.airline} - {flight.flightNumber}
@@ -314,42 +506,51 @@ export default function ComparisonSystem() {
                 </SelectContent>
               </Select>
             </div>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={dbCompareLoading}>
               <FileSpreadsheet className="h-4 w-4 mr-2" />
-              {loading ? 'Karşılaştırılıyor...' : 'Veritabanı ile Karşılaştır'}
+              {dbCompareLoading ? 'Karşılaştırılıyor...' : 'Veritabanı ile Karşılaştır'}
             </Button>
           </form>
 
+          {dbCompareError && (
+            <p className="mt-4 text-sm text-red-600" role="alert">
+              {dbCompareError}
+            </p>
+          )}
+
           {excelToDbResult && (
             <div className="mt-6 space-y-6">
-              <div className="flex gap-4 text-sm">
-                <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
-                  Toplam: {excelToDbResult.summary.total}
+              {excelToDbSummary && (
+                <div className="flex gap-4 text-sm">
+                  <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
+                    Toplam: {excelToDbSummary.total}
+                  </div>
+                  <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
+                    Eklenenler: {excelToDbSummary.new}
+                  </div>
+                  <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
+                    Çıkarılanlar: {excelToDbSummary.deleted}
+                  </div>
+                  <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
+                    Değişenler: {excelToDbSummary.updated}
+                  </div>
                 </div>
-                <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
-                  Eklenenler: {excelToDbResult.summary.new}
-                </div>
-                <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
-                  Çıkarılanlar: {excelToDbResult.summary.deleted}
-                </div>
-                <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
-                  Değişenler: {excelToDbResult.summary.updated}
-                </div>
-              </div>
+              )}
 
               {/* Eklenenler Tablosu */}
               {excelToDbResult.differences.filter(d => d.differenceType === 'NEW').length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-green-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    Eklenenler (Excel'de var, DB'de yok) - {excelToDbResult.summary.new}
+                    Eklenenler (Excel'de var, DB'de yok) - {excelToDbSummary?.new ?? 0}
                   </h3>
                   <div className="overflow-x-auto border-2 border-green-200 rounded-lg">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-green-50">
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Havayolu</th>
                           <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
@@ -361,7 +562,10 @@ export default function ComparisonSystem() {
                           .map((diff, idx) => (
                             <tr key={idx} className="bg-white hover:bg-green-50">
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.fullName || '-'}</td>
-                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.voucher || '-'}</td>
+                              <td className="border-b border-green-100 px-4 py-2">
+                                {getDisplayIdentifier(diff.sideB) || '-'}
+                              </td>
+                              <td className="border-b border-green-100 px-4 py-2">{getRouteLabel(diff.sideB)}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightDate || '-'}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.airline || '-'}</td>
                               <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightNumber || '-'}</td>
@@ -378,14 +582,15 @@ export default function ComparisonSystem() {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                    Çıkarılanlar (DB'de var, Excel'de yok) - {excelToDbResult.summary.deleted}
+                    Çıkarılanlar (DB'de var, Excel'de yok) - {excelToDbSummary?.deleted ?? 0}
                   </h3>
                   <div className="overflow-x-auto border-2 border-red-200 rounded-lg">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-red-50">
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Havayolu</th>
                           <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
@@ -397,7 +602,10 @@ export default function ComparisonSystem() {
                           .map((diff, idx) => (
                             <tr key={idx} className="bg-white hover:bg-red-50">
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.fullName || '-'}</td>
-                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.voucher || '-'}</td>
+                              <td className="border-b border-red-100 px-4 py-2">
+                                {getDisplayIdentifier(diff.sideA) || '-'}
+                              </td>
+                              <td className="border-b border-red-100 px-4 py-2">{getRouteLabel(diff.sideA)}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightDate || '-'}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.airline || '-'}</td>
                               <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightNumber || '-'}</td>
@@ -414,14 +622,15 @@ export default function ComparisonSystem() {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-yellow-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                    Değişenler / Farklar ({excelToDbResult.summary.updated})
+                    Değişenler / Farklar ({excelToDbSummary?.updated ?? 0})
                   </h3>
                   <div className="overflow-x-auto border-2 border-yellow-200 rounded-lg">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-yellow-50">
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
-                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Referans / Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Rota</th>
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
                           <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Değişen Alanlar</th>
                         </tr>
@@ -435,7 +644,10 @@ export default function ComparisonSystem() {
                                 {diff.sideB?.fullName || diff.sideA?.fullName || '-'}
                               </td>
                               <td className="border-b border-yellow-100 px-4 py-2">
-                                {diff.sideB?.voucher || diff.sideA?.voucher || '-'}
+                                {getDisplayIdentifier(diff.sideB) || getDisplayIdentifier(diff.sideA) || '-'}
+                              </td>
+                              <td className="border-b border-yellow-100 px-4 py-2">
+                                {getRouteLabel(diff.sideB) !== '-' ? getRouteLabel(diff.sideB) : getRouteLabel(diff.sideA)}
                               </td>
                               <td className="border-b border-yellow-100 px-4 py-2">
                                 {diff.sideB?.flightDate || diff.sideA?.flightDate || '-'}
@@ -462,6 +674,14 @@ export default function ComparisonSystem() {
                 </div>
               )}
 
+              {dbNameConflicts.length > 0 && (
+                <NameConflictTable
+                  conflicts={dbNameConflicts}
+                  leftLabel="Veritabanı"
+                  rightLabel="Excel"
+                />
+              )}
+
               {/* Sonuç yoksa mesaj */}
               {excelToDbResult.differences.length === 0 && (
                 <div className="p-6 text-center text-gray-500 bg-gray-50 rounded-lg border-2 border-gray-200">
@@ -474,9 +694,9 @@ export default function ComparisonSystem() {
         </CardContent>
       </Card>
 
-      {error && (
+      {(excelCompareError || dbCompareError) && (
         <div className="p-4 text-sm text-red-600 bg-red-50 rounded-md">
-          {error}
+          {excelCompareError || dbCompareError}
         </div>
       )}
     </div>
