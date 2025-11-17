@@ -17,9 +17,11 @@ interface DifferenceRow {
   statusText?: string;
 }
 
+const ALL_FLIGHTS_VALUE = 'ALL_FLIGHTS';
+
 export default function ComparisonSystem() {
   const [flights, setFlights] = useState<any[]>([]);
-  const [selectedFlightId, setSelectedFlightId] = useState<string>('');
+  const [selectedFlightId, setSelectedFlightId] = useState<string>(ALL_FLIGHTS_VALUE);
   const [excelToExcelResult, setExcelToExcelResult] = useState<{ differences: DifferenceRow[]; summary: any } | null>(null);
   const [excelToDbResult, setExcelToDbResult] = useState<{ differences: DifferenceRow[]; summary: any } | null>(null);
   const [excelCompareLoading, setExcelCompareLoading] = useState(false);
@@ -85,7 +87,7 @@ export default function ComparisonSystem() {
     try {
       const compareFormData = new FormData();
       compareFormData.append('file', file);
-      if (selectedFlightId && selectedFlightId !== '') {
+      if (selectedFlightId && selectedFlightId !== ALL_FLIGHTS_VALUE) {
         compareFormData.append('flightId', selectedFlightId);
       }
 
@@ -304,10 +306,10 @@ export default function ComparisonSystem() {
               <Label>Uçuş Seçin (Opsiyonel)</Label>
               <Select value={selectedFlightId} onValueChange={setSelectedFlightId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tüm uçuşlar" />
+                  <SelectValue placeholder="Uçuş seçin" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Tüm Uçuşlar</SelectItem>
+                  <SelectItem value={ALL_FLIGHTS_VALUE}>Tüm Uçuşlar</SelectItem>
                   {flights.map((flight) => (
                     <SelectItem key={flight.id} value={flight.id}>
                       {flight.airline} - {flight.flightNumber}
