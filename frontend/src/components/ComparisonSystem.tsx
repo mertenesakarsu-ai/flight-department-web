@@ -134,64 +134,154 @@ export default function ComparisonSystem() {
           </form>
 
           {excelToExcelResult && (
-            <div className="mt-6 space-y-4">
+            <div className="mt-6 space-y-6">
               <div className="flex gap-4 text-sm">
-                <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded">
+                <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
                   Toplam: {excelToExcelResult.summary.total}
                 </div>
-                <div className="px-3 py-1 bg-green-100 text-green-800 rounded">
-                  Yeni: {excelToExcelResult.summary.new}
+                <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
+                  Eklenenler: {excelToExcelResult.summary.new}
                 </div>
-                <div className="px-3 py-1 bg-red-100 text-red-800 rounded">
-                  Silinen: {excelToExcelResult.summary.deleted}
+                <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
+                  Çıkarılanlar: {excelToExcelResult.summary.deleted}
                 </div>
-                <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded">
-                  Güncellenen: {excelToExcelResult.summary.updated}
+                <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
+                  Değişenler: {excelToExcelResult.summary.updated}
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="border px-4 py-2 text-left">Durum</th>
-                      <th className="border px-4 py-2 text-left">Ad</th>
-                      <th className="border px-4 py-2 text-left">Voucher</th>
-                      <th className="border px-4 py-2 text-left">Tarih</th>
-                      <th className="border px-4 py-2 text-left">Detaylar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {excelToExcelResult.differences.map((diff, idx) => (
-                      <tr key={idx} className={getStatusColor(diff.differenceType)}>
-                        <td className="border px-4 py-2 font-medium">
-                          {diff.statusText || diff.differenceType}
-                        </td>
-                        <td className="border px-4 py-2">
-                          {diff.sideB?.fullName || diff.sideA?.fullName || '-'}
-                        </td>
-                        <td className="border px-4 py-2">
-                          {diff.sideB?.voucher || diff.sideA?.voucher || '-'}
-                        </td>
-                        <td className="border px-4 py-2">
-                          {diff.sideB?.flightDate || diff.sideA?.flightDate || '-'}
-                        </td>
-                        <td className="border px-4 py-2 text-sm">
-                          {diff.changes && diff.changes.length > 0 && (
-                            <div>
-                              {diff.changes.map((change, i) => (
-                                <div key={i}>
-                                  <strong>{change.field}:</strong> {String(change.oldValue)} → {String(change.newValue)}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {/* Eklenenler Tablosu */}
+              {excelToExcelResult.differences.filter(d => d.differenceType === 'NEW').length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-green-700 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                    Eklenenler ({excelToExcelResult.summary.new})
+                  </h3>
+                  <div className="overflow-x-auto border-2 border-green-200 rounded-lg">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-green-50">
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Havayolu</th>
+                          <th className="border-b-2 border-green-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {excelToExcelResult.differences
+                          .filter(d => d.differenceType === 'NEW')
+                          .map((diff, idx) => (
+                            <tr key={idx} className="bg-white hover:bg-green-50">
+                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.fullName || '-'}</td>
+                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.voucher || '-'}</td>
+                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightDate || '-'}</td>
+                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.airline || '-'}</td>
+                              <td className="border-b border-green-100 px-4 py-2">{diff.sideB?.flightNumber || '-'}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Çıkarılanlar Tablosu */}
+              {excelToExcelResult.differences.filter(d => d.differenceType === 'DELETED').length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                    Çıkarılanlar ({excelToExcelResult.summary.deleted})
+                  </h3>
+                  <div className="overflow-x-auto border-2 border-red-200 rounded-lg">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-red-50">
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Havayolu</th>
+                          <th className="border-b-2 border-red-200 px-4 py-3 text-left font-semibold">Uçuş No</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {excelToExcelResult.differences
+                          .filter(d => d.differenceType === 'DELETED')
+                          .map((diff, idx) => (
+                            <tr key={idx} className="bg-white hover:bg-red-50">
+                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.fullName || '-'}</td>
+                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.voucher || '-'}</td>
+                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightDate || '-'}</td>
+                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.airline || '-'}</td>
+                              <td className="border-b border-red-100 px-4 py-2">{diff.sideA?.flightNumber || '-'}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Değişenler/Farklar Tablosu */}
+              {excelToExcelResult.differences.filter(d => d.differenceType === 'UPDATED').length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-yellow-700 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                    Değişenler / Farklar ({excelToExcelResult.summary.updated})
+                  </h3>
+                  <div className="overflow-x-auto border-2 border-yellow-200 rounded-lg">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-yellow-50">
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Ad Soyad</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Voucher</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Uçuş Tarihi</th>
+                          <th className="border-b-2 border-yellow-200 px-4 py-3 text-left font-semibold">Değişen Alanlar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {excelToExcelResult.differences
+                          .filter(d => d.differenceType === 'UPDATED')
+                          .map((diff, idx) => (
+                            <tr key={idx} className="bg-white hover:bg-yellow-50">
+                              <td className="border-b border-yellow-100 px-4 py-2">
+                                {diff.sideB?.fullName || diff.sideA?.fullName || '-'}
+                              </td>
+                              <td className="border-b border-yellow-100 px-4 py-2">
+                                {diff.sideB?.voucher || diff.sideA?.voucher || '-'}
+                              </td>
+                              <td className="border-b border-yellow-100 px-4 py-2">
+                                {diff.sideB?.flightDate || diff.sideA?.flightDate || '-'}
+                              </td>
+                              <td className="border-b border-yellow-100 px-4 py-2">
+                                {diff.changes && diff.changes.length > 0 && (
+                                  <div className="space-y-1 text-sm">
+                                    {diff.changes.map((change, i) => (
+                                      <div key={i} className="flex items-start gap-2">
+                                        <span className="font-semibold text-yellow-700 min-w-[100px]">{change.field}:</span>
+                                        <span className="text-red-600 line-through">{String(change.oldValue || '-')}</span>
+                                        <span>→</span>
+                                        <span className="text-green-600 font-medium">{String(change.newValue || '-')}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Sonuç yoksa mesaj */}
+              {excelToExcelResult.differences.length === 0 && (
+                <div className="p-6 text-center text-gray-500 bg-gray-50 rounded-lg border-2 border-gray-200">
+                  <p className="text-lg font-medium">✓ İki Excel dosyası tamamen aynı!</p>
+                  <p className="text-sm mt-1">Hiçbir fark bulunamadı.</p>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
