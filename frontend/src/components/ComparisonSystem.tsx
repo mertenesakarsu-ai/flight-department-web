@@ -70,7 +70,6 @@ export default function ComparisonSystem() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const file = formData.get('file') as File;
-    const flightId = formData.get('flightId') as string;
 
     if (!file) {
       setError('Excel dosyasını seçin');
@@ -83,8 +82,8 @@ export default function ComparisonSystem() {
     try {
       const compareFormData = new FormData();
       compareFormData.append('file', file);
-      if (flightId) {
-        compareFormData.append('flightId', flightId);
+      if (selectedFlightId && selectedFlightId !== '') {
+        compareFormData.append('flightId', selectedFlightId);
       }
 
       const result = await compareAPI.excelToDb(compareFormData);
