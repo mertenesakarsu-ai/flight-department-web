@@ -1,0 +1,52 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Flight {
+  id               String    @id @default(uuid())
+  airline          String
+  flightNumber     String    @map("flight_number")
+  departureAirport String    @map("departure_airport")
+  arrivalAirport   String    @map("arrival_airport")
+  departureDate    DateTime  @map("departure_date")
+  departureTime    String?   @map("departure_time")
+  arrivalDate      DateTime? @map("arrival_date")
+  arrivalTime      String?   @map("arrival_time")
+  note             String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  passengers Passenger[]
+
+  @@map("flights")
+}
+
+model Passenger {
+  id              String    @id @default(uuid())
+  flightId        String    @map("flight_id")
+  fullName        String    @map("full_name")
+  firstName       String?   @map("first_name")
+  lastName        String?   @map("last_name")
+  voucher         String
+  roomType        String    @map("room_type") // SINGLE, DOUBLE, TRIPLE
+  bookingReference String?  @map("booking_reference")
+  passportNumber  String?   @map("passport_number")
+  nationality     String?
+  checkInDate     DateTime? @map("check_in_date")
+  checkOutDate    DateTime? @map("check_out_date")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  flight Flight @relation(fields: [flightId], references: [id], onDelete: Cascade)
+
+  @@map("passengers")
+}
+
