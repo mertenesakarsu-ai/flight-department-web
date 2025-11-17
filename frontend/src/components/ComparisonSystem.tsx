@@ -19,6 +19,7 @@ interface DifferenceRow {
 
 export default function ComparisonSystem() {
   const [flights, setFlights] = useState<any[]>([]);
+  const [selectedFlightId, setSelectedFlightId] = useState<string>('');
   const [excelToExcelResult, setExcelToExcelResult] = useState<{ differences: DifferenceRow[]; summary: any } | null>(null);
   const [excelToDbResult, setExcelToDbResult] = useState<{ differences: DifferenceRow[]; summary: any } | null>(null);
   const [loading, setLoading] = useState(false);
