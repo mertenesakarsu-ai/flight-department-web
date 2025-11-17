@@ -108,6 +108,15 @@ export const excelAPI = {
 };
 
 // Compare API
+const excelToDbRequest = async (formData: FormData) => {
+  const response = await api.post('/compare/excel-to-db', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
 export const compareAPI = {
   excelToExcel: async (formData: FormData) => {
     const response = await api.post('/compare/excel-to-excel', formData, {
@@ -117,14 +126,9 @@ export const compareAPI = {
     });
     return response.data;
   },
-  excelToDB: async (formData: FormData) => {
-    const response = await api.post('/compare/excel-to-db', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  },
+  excelToDb: excelToDbRequest,
+  // Backwards compatibility for previous camelCase usage
+  excelToDB: excelToDbRequest,
 };
 
 export default api;

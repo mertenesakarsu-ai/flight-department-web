@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { excelAPI } from '@/lib/api';
-import { Upload, FileText, Download } from 'lucide-react';
+import { FileText, Download } from 'lucide-react';
 
 const COMPANIES = ['Ryanair', 'EasyJet', 'Turkish Airlines', 'Pegasus', 'SunExpress', 'Other'];
 
@@ -16,7 +16,6 @@ export default function ExcelBuilder() {
   const [rawText, setRawText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [preview, setPreview] = useState<any[]>([]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {

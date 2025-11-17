@@ -95,19 +95,6 @@ export default function ComparisonSystem() {
     }
   };
 
-  const getStatusColor = (type: string) => {
-    switch (type) {
-      case 'NEW':
-        return 'bg-green-100 text-green-800 border-green-300';
-      case 'DELETED':
-        return 'bg-red-100 text-red-800 border-red-300';
-      case 'UPDATED':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   return (
     <div className="space-y-6">
       <Card>
