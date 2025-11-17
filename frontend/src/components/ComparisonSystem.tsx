@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,8 +22,10 @@ export default function ComparisonSystem() {
   const [selectedFlightId, setSelectedFlightId] = useState<string>('');
   const [excelToExcelResult, setExcelToExcelResult] = useState<{ differences: DifferenceRow[]; summary: any } | null>(null);
   const [excelToDbResult, setExcelToDbResult] = useState<{ differences: DifferenceRow[]; summary: any } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [excelCompareLoading, setExcelCompareLoading] = useState(false);
+  const [dbCompareLoading, setDbCompareLoading] = useState(false);
+  const [excelCompareError, setExcelCompareError] = useState('');
+  const [dbCompareError, setDbCompareError] = useState('');
 
   useEffect(() => {
     loadFlights();
@@ -45,12 +47,12 @@ export default function ComparisonSystem() {
     const fileB = formData.get('fileB') as File;
 
     if (!fileA || !fileB) {
-      setError('Her iki Excel dosyasını da seçin');
+      setExcelCompareError('Her iki Excel dosyasını da seçin');
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setExcelCompareLoading(true);
+    setExcelCompareError('');
 
     try {
       const compareFormData = new FormData();
@@ -59,10 +61,11 @@ export default function ComparisonSystem() {
 
       const result = await compareAPI.excelToExcel(compareFormData);
       setExcelToExcelResult(result);
+      setExcelCompareError('');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Karşılaştırma sırasında bir hata oluştu');
+      setExcelCompareError(err.response?.data?.error || 'Karşılaştırma sırasında bir hata oluştu');
     } finally {
-      setLoading(false);
+      setExcelCompareLoading(false);
     }
   };
 
@@ -72,12 +75,12 @@ export default function ComparisonSystem() {
     const file = formData.get('file') as File;
 
     if (!file) {
-      setError('Excel dosyasını seçin');
+      setDbCompareError('Excel dosyasını seçin');
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setDbCompareLoading(true);
+    setDbCompareError('');
 
     try {
       const compareFormData = new FormData();
@@ -88,12 +91,16 @@ export default function ComparisonSystem() {
 
       const result = await compareAPI.excelToDb(compareFormData);
       setExcelToDbResult(result);
+      setDbCompareError('');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Karşılaştırma sırasında bir hata oluştu');
+      setDbCompareError(err.response?.data?.error || 'Karşılaştırma sırasında bir hata oluştu');
     } finally {
-      setLoading(false);
+      setDbCompareLoading(false);
     }
   };
+
+  const excelToExcelSummary = useMemo(() => excelToExcelResult?.summary, [excelToExcelResult]);
+  const excelToDbSummary = useMemo(() => excelToDbResult?.summary, [excelToDbResult]);
 
   return (
     <div className="space-y-6">
@@ -114,35 +121,43 @@ export default function ComparisonSystem() {
                 <Input type="file" accept=".xlsx,.xls" name="fileB" required />
               </div>
             </div>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={excelCompareLoading}>
               <ArrowLeftRight className="h-4 w-4 mr-2" />
-              {loading ? 'Karşılaştırılıyor...' : 'Karşılaştır'}
+              {excelCompareLoading ? 'Karşılaştırılıyor...' : 'Karşılaştır'}
             </Button>
           </form>
 
+          {excelCompareError && (
+            <p className="mt-4 text-sm text-red-600" role="alert">
+              {excelCompareError}
+            </p>
+          )}
+
           {excelToExcelResult && (
             <div className="mt-6 space-y-6">
-              <div className="flex gap-4 text-sm">
-                <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
-                  Toplam: {excelToExcelResult.summary.total}
+              {excelToExcelSummary && (
+                <div className="flex gap-4 text-sm">
+                  <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
+                    Toplam: {excelToExcelSummary.total}
+                  </div>
+                  <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
+                    Eklenenler: {excelToExcelSummary.new}
+                  </div>
+                  <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
+                    Çıkarılanlar: {excelToExcelSummary.deleted}
+                  </div>
+                  <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
+                    Değişenler: {excelToExcelSummary.updated}
+                  </div>
                 </div>
-                <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
-                  Eklenenler: {excelToExcelResult.summary.new}
-                </div>
-                <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
-                  Çıkarılanlar: {excelToExcelResult.summary.deleted}
-                </div>
-                <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
-                  Değişenler: {excelToExcelResult.summary.updated}
-                </div>
-              </div>
+              )}
 
               {/* Eklenenler Tablosu */}
               {excelToExcelResult.differences.filter(d => d.differenceType === 'NEW').length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-green-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    Eklenenler ({excelToExcelResult.summary.new})
+                    Eklenenler ({excelToExcelSummary?.new ?? 0})
                   </h3>
                   <div className="overflow-x-auto border-2 border-green-200 rounded-lg">
                     <table className="w-full border-collapse">
@@ -178,7 +193,7 @@ export default function ComparisonSystem() {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                    Çıkarılanlar ({excelToExcelResult.summary.deleted})
+                    Çıkarılanlar ({excelToExcelSummary?.deleted ?? 0})
                   </h3>
                   <div className="overflow-x-auto border-2 border-red-200 rounded-lg">
                     <table className="w-full border-collapse">
@@ -214,7 +229,7 @@ export default function ComparisonSystem() {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-yellow-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                    Değişenler / Farklar ({excelToExcelResult.summary.updated})
+                    Değişenler / Farklar ({excelToExcelSummary?.updated ?? 0})
                   </h3>
                   <div className="overflow-x-auto border-2 border-yellow-200 rounded-lg">
                     <table className="w-full border-collapse">
@@ -301,35 +316,43 @@ export default function ComparisonSystem() {
                 </SelectContent>
               </Select>
             </div>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={dbCompareLoading}>
               <FileSpreadsheet className="h-4 w-4 mr-2" />
-              {loading ? 'Karşılaştırılıyor...' : 'Veritabanı ile Karşılaştır'}
+              {dbCompareLoading ? 'Karşılaştırılıyor...' : 'Veritabanı ile Karşılaştır'}
             </Button>
           </form>
 
+          {dbCompareError && (
+            <p className="mt-4 text-sm text-red-600" role="alert">
+              {dbCompareError}
+            </p>
+          )}
+
           {excelToDbResult && (
             <div className="mt-6 space-y-6">
-              <div className="flex gap-4 text-sm">
-                <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
-                  Toplam: {excelToDbResult.summary.total}
+              {excelToDbSummary && (
+                <div className="flex gap-4 text-sm">
+                  <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded font-semibold">
+                    Toplam: {excelToDbSummary.total}
+                  </div>
+                  <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
+                    Eklenenler: {excelToDbSummary.new}
+                  </div>
+                  <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
+                    Çıkarılanlar: {excelToDbSummary.deleted}
+                  </div>
+                  <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
+                    Değişenler: {excelToDbSummary.updated}
+                  </div>
                 </div>
-                <div className="px-3 py-1 bg-green-100 text-green-800 rounded font-semibold">
-                  Eklenenler: {excelToDbResult.summary.new}
-                </div>
-                <div className="px-3 py-1 bg-red-100 text-red-800 rounded font-semibold">
-                  Çıkarılanlar: {excelToDbResult.summary.deleted}
-                </div>
-                <div className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold">
-                  Değişenler: {excelToDbResult.summary.updated}
-                </div>
-              </div>
+              )}
 
               {/* Eklenenler Tablosu */}
               {excelToDbResult.differences.filter(d => d.differenceType === 'NEW').length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-green-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    Eklenenler (Excel'de var, DB'de yok) - {excelToDbResult.summary.new}
+                    Eklenenler (Excel'de var, DB'de yok) - {excelToDbSummary?.new ?? 0}
                   </h3>
                   <div className="overflow-x-auto border-2 border-green-200 rounded-lg">
                     <table className="w-full border-collapse">
@@ -365,7 +388,7 @@ export default function ComparisonSystem() {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                    Çıkarılanlar (DB'de var, Excel'de yok) - {excelToDbResult.summary.deleted}
+                    Çıkarılanlar (DB'de var, Excel'de yok) - {excelToDbSummary?.deleted ?? 0}
                   </h3>
                   <div className="overflow-x-auto border-2 border-red-200 rounded-lg">
                     <table className="w-full border-collapse">
@@ -401,7 +424,7 @@ export default function ComparisonSystem() {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-yellow-700 flex items-center gap-2">
                     <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                    Değişenler / Farklar ({excelToDbResult.summary.updated})
+                    Değişenler / Farklar ({excelToDbSummary?.updated ?? 0})
                   </h3>
                   <div className="overflow-x-auto border-2 border-yellow-200 rounded-lg">
                     <table className="w-full border-collapse">
@@ -461,9 +484,9 @@ export default function ComparisonSystem() {
         </CardContent>
       </Card>
 
-      {error && (
+      {(excelCompareError || dbCompareError) && (
         <div className="p-4 text-sm text-red-600 bg-red-50 rounded-md">
-          {error}
+          {excelCompareError || dbCompareError}
         </div>
       )}
     </div>
