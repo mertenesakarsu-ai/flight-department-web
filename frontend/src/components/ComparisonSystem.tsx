@@ -210,7 +210,7 @@ export default function ComparisonSystem() {
             </div>
             <div className="space-y-2">
               <Label>Uçuş Seçin (Opsiyonel)</Label>
-              <Select name="flightId">
+              <Select value={selectedFlightId} onValueChange={setSelectedFlightId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Tüm uçuşlar" />
                 </SelectTrigger>
